@@ -1,10 +1,12 @@
 import os
 import json
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
 
 # --------------------------------------------------
@@ -36,7 +38,10 @@ print("================================")
 # --------------------------------------------------
 
 client = genai.Client(
-    api_key=api_key
+    api_key=api_key,
+    http_options=types.HttpOptions(
+        timeout=10000
+    )
 )
 
 
@@ -163,13 +168,96 @@ User Request:
 
 
     # --------------------------------------------------
-    # Send request to Gemini
+    # Send request to Gemini with retry handling
     # --------------------------------------------------
 
-    response = client.models.generate_content(
-        model="gemini-3.5-flash",
-        contents=prompt
-    )
+    MAX_RETRIES = 2
+
+    response = None
+
+    for attempt in range(MAX_RETRIES + 1):
+
+        try:
+
+            print(
+                f"[Gemini] Attempt {attempt + 1} "
+                f"of {MAX_RETRIES + 1}"
+            )
+
+            response = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=prompt
+            )
+
+            print("[Gemini] Request successful")
+
+            break
+
+
+        except Exception as error:
+
+            error_message = str(error)
+
+            print(
+                f"[Gemini] Attempt {attempt + 1} failed: "
+                f"{error_message}"
+            )
+
+
+            # --------------------------------------------------
+            # Do NOT retry quota errors
+            # --------------------------------------------------
+
+            if "429" in error_message or "RESOURCE_EXHAUSTED" in error_message:
+
+                print(
+                    "\n========== GEMINI QUOTA ERROR =========="
+                )
+                print(
+                    "Gemini API quota has been exceeded."
+                )
+                print(
+                    "Please wait for the quota to reset "
+                    "before sending more requests."
+                )
+                print(
+                    "========================================\n"
+                )
+
+                raise RuntimeError(
+                    "Gemini API quota exceeded. "
+                    "Please wait for the quota to reset."
+                )
+
+
+            # --------------------------------------------------
+            # Retry temporary errors
+            # --------------------------------------------------
+
+            if attempt == MAX_RETRIES:
+
+                print(
+                    "\n========== GEMINI API ERROR =========="
+                )
+                print(error)
+                print(
+                    "======================================\n"
+                )
+
+                raise RuntimeError(
+                    "Gemini API request failed after "
+                    "multiple attempts."
+                )
+
+
+            wait_time = 1 * (attempt + 1)
+
+            print(
+                f"[Gemini] Retrying in "
+                f"{wait_time} second(s)..."
+            )
+
+            time.sleep(wait_time)
 
 
     # --------------------------------------------------

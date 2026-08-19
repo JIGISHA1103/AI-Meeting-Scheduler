@@ -1,6 +1,7 @@
 import os
 import json
 import traceback
+import uuid
 from datetime import datetime
 
 # --------------------------------------------------
@@ -24,7 +25,8 @@ from pydantic import BaseModel
 from app.ai.parser import parse_meeting_request
 from app.auth.oauth import create_oauth_flow
 
-from app.services.scheduling_service import schedule_meeting
+# Celery task
+from app.tasks import process_meeting_request
 
 from app.calendar.calendar_service import (
     get_calendar_service,
@@ -33,17 +35,26 @@ from app.calendar.calendar_service import (
 )
 
 # --------------------------------------------------
-# FastAPI Application
+# Database imports
 # --------------------------------------------------
+
+from app.database.database import SessionLocal
+from app.database.models import MeetingRequest as MeetingRequestDB
+
+
+# ==================================================
+# FastAPI Application
+# ==================================================
 
 app = FastAPI(
     title="Meeting AI",
     version="1.0"
 )
 
-# --------------------------------------------------
+
+# ==================================================
 # Request Models
-# --------------------------------------------------
+# ==================================================
 
 class MeetingRequest(BaseModel):
     text: str
@@ -56,16 +67,16 @@ class CalendarEventRequest(BaseModel):
     description: str = ""
 
 
-# --------------------------------------------------
+# ==================================================
 # Temporary OAuth Flow Storage
-# --------------------------------------------------
+# ==================================================
 
 oauth_flows = {}
 
 
-# --------------------------------------------------
+# ==================================================
 # OAuth Token Storage
-# --------------------------------------------------
+# ==================================================
 
 TOKEN_FILE = "token.json"
 
@@ -92,9 +103,9 @@ def save_credentials(credentials):
         )
 
 
-# --------------------------------------------------
+# ==================================================
 # Home
-# --------------------------------------------------
+# ==================================================
 
 @app.get("/")
 def home():
@@ -105,9 +116,9 @@ def home():
     }
 
 
-# --------------------------------------------------
+# ==================================================
 # Google OAuth Login
-# --------------------------------------------------
+# ==================================================
 
 @app.get("/login")
 def login():
@@ -139,16 +150,19 @@ def login():
         }
 
 
-# --------------------------------------------------
+# ==================================================
 # Google OAuth Callback
-# --------------------------------------------------
+# ==================================================
 
 @app.get("/auth/callback")
 def auth_callback(request: Request):
 
     try:
 
+        # --------------------------------------------------
         # Get OAuth state
+        # --------------------------------------------------
+
         state = request.query_params.get("state")
 
         if not state:
@@ -157,7 +171,10 @@ def auth_callback(request: Request):
                 "error": "Missing OAuth state"
             }
 
-        # Retrieve the original OAuth flow
+        # --------------------------------------------------
+        # Retrieve original OAuth flow
+        # --------------------------------------------------
+
         flow = oauth_flows.get(state)
 
         if not flow:
@@ -169,18 +186,27 @@ def auth_callback(request: Request):
                 )
             }
 
+        # --------------------------------------------------
         # Exchange authorization code
         # for Google credentials
+        # --------------------------------------------------
+
         flow.fetch_token(
             authorization_response=str(request.url)
         )
 
         credentials = flow.credentials
 
+        # --------------------------------------------------
         # Save credentials locally
+        # --------------------------------------------------
+
         save_credentials(credentials)
 
+        # --------------------------------------------------
         # Remove OAuth flow after successful authentication
+        # --------------------------------------------------
+
         oauth_flows.pop(state, None)
 
         # DO NOT return the tokens
@@ -197,9 +223,9 @@ def auth_callback(request: Request):
         }
 
 
-# --------------------------------------------------
+# ==================================================
 # Existing Parse Endpoint
-# --------------------------------------------------
+# ==================================================
 
 @app.post("/parse")
 def parse(request: MeetingRequest):
@@ -219,9 +245,9 @@ def parse(request: MeetingRequest):
         }
 
 
-# --------------------------------------------------
+# ==================================================
 # Google Calendar Test
-# --------------------------------------------------
+# ==================================================
 
 @app.get("/calendar")
 def get_calendar():
@@ -252,9 +278,9 @@ def get_calendar():
         }
 
 
-# --------------------------------------------------
+# ==================================================
 # Google Calendar Availability
-# --------------------------------------------------
+# ==================================================
 
 @app.get("/calendar/availability")
 def calendar_availability():
@@ -290,9 +316,9 @@ def calendar_availability():
         }
 
 
-# --------------------------------------------------
+# ==================================================
 # Create Google Calendar Event
-# --------------------------------------------------
+# ==================================================
 
 @app.post("/calendar/create-event")
 def create_event(request: CalendarEventRequest):
@@ -331,29 +357,116 @@ def create_event(request: CalendarEventRequest):
 
 
 # ==================================================
-# PHASE 8
-# AI MEETING SCHEDULING ENDPOINT
+# PHASE 14
+# ASYNCHRONOUS TASK PROCESSING
 # ==================================================
 
 @app.post("/schedule")
 def schedule(request: MeetingRequest):
 
+    # --------------------------------------------------
+    # Generate unique request ID
+    # --------------------------------------------------
+
+    request_id = str(uuid.uuid4())
+
+    print(
+        f"[{request_id}] Request received"
+    )
+
+    # --------------------------------------------------
+    # Open database session
+    # --------------------------------------------------
+
+    db = SessionLocal()
+
+    db_request = None
+
     try:
 
-        # Send the user's natural-language request
-        # to the complete scheduling workflow.
+        # --------------------------------------------------
+        # Save request to database
+        # --------------------------------------------------
 
-        result = schedule_meeting(
-            request.text
+        db_request = MeetingRequestDB(
+            request_id=request_id,
+            user_input=request.text,
+            status="processing"
         )
 
-        return result
+        db.add(db_request)
+
+        db.commit()
+
+        db.refresh(db_request)
+
+        print(
+            f"[{request_id}] Request saved to database"
+        )
+
+        # --------------------------------------------------
+        # Send request to Celery
+        # --------------------------------------------------
+
+        task = process_meeting_request.delay(
+            request.text,
+            request_id
+        )
+
+        print(
+            f"[{request_id}] Celery task queued: "
+            f"{task.id}"
+        )
+
+        # --------------------------------------------------
+        # Return immediately
+        # --------------------------------------------------
+
+        return {
+            "request_id": request_id,
+            "task_id": task.id,
+            "status": "processing",
+            "message": "Meeting request queued successfully"
+        }
 
     except Exception as e:
 
+        # --------------------------------------------------
+        # Celery queueing failure
+        # --------------------------------------------------
+
+        print(
+            f"[{request_id}] Failed to queue Celery task"
+        )
+
         traceback.print_exc()
 
+        error_message = str(e)
+
+        # --------------------------------------------------
+        # Update database with error
+        # --------------------------------------------------
+
+        if db_request:
+
+            db_request.status = "error"
+
+            db_request.error_message = error_message
+
+            db_request.completed_at = datetime.utcnow()
+
+            db.commit()
+
         return {
+            "request_id": request_id,
             "status": "error",
-            "message": str(e)
+            "message": error_message
         }
+
+    finally:
+
+        # --------------------------------------------------
+        # Always close database session
+        # --------------------------------------------------
+
+        db.close()

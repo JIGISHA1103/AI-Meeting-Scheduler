@@ -19,7 +19,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Schedule Meeting
 # --------------------------------------------------
 
-def schedule_meeting(user_input: str):
+def schedule_meeting(user_input: str, request_id: str):
     """
     Complete meeting scheduling workflow:
 
@@ -34,11 +34,12 @@ def schedule_meeting(user_input: str):
     # Step 1: Parse meeting request using Gemini
     # --------------------------------------------------
 
+    print(f"[{request_id}] Parsing meeting request")
+
     meeting = parse_meeting_request(user_input)
 
-    print("\n========== PARSED MEETING ==========")
+    print(f"[{request_id}] Parsed meeting:")
     print(meeting)
-    print("====================================\n")
 
 
     # --------------------------------------------------
@@ -110,15 +111,16 @@ def schedule_meeting(user_input: str):
     )
 
 
-    print("\n========== MEETING TIME ==========")
+    print(f"[{request_id}] Meeting time:")
     print("Start:", start_time)
     print("End:", end_time)
-    print("==================================\n")
 
 
     # --------------------------------------------------
     # Step 6: Check Google Calendar availability
     # --------------------------------------------------
+
+    print(f"[{request_id}] Checking calendar availability")
 
     busy_periods = check_availability(
         start_time,
@@ -131,6 +133,8 @@ def schedule_meeting(user_input: str):
     # --------------------------------------------------
 
     if busy_periods:
+
+        print(f"[{request_id}] Calendar conflict detected")
 
         return {
             "status": "conflict",
@@ -159,6 +163,8 @@ def schedule_meeting(user_input: str):
     # Step 9: Create Google Calendar event
     # --------------------------------------------------
 
+    print(f"[{request_id}] Creating calendar event")
+
     event = create_calendar_event(
         summary=title,
         start_time=start_time,
@@ -171,6 +177,8 @@ def schedule_meeting(user_input: str):
     # --------------------------------------------------
     # Step 10: Return result
     # --------------------------------------------------
+
+    print(f"[{request_id}] Meeting scheduled successfully")
 
     return {
         "status": "success",
