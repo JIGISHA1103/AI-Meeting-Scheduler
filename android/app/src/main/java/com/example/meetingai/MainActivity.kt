@@ -9,11 +9,13 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,21 +25,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+
 import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -45,93 +51,153 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
 import com.example.meetingai.ui.theme.MeetingAITheme
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+
 import org.json.JSONObject
+
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-private const val BASE_URL = "http://192.168.0.165:8000"
 
-private const val TAG = "MeetingAI"
+// ==================================================
+// Backend Configuration
+// ==================================================
+
+private const val BASE_URL =
+    "http://192.168.0.165:8000"
+
+private const val TAG =
+    "MeetingAI"
+
+
+// ==================================================
+// OkHttp Client
+// ==================================================
 
 private val client = OkHttpClient.Builder()
-    .connectTimeout(30, TimeUnit.SECONDS)
-    .readTimeout(120, TimeUnit.SECONDS)
-    .writeTimeout(30, TimeUnit.SECONDS)
+
+    .connectTimeout(
+        30,
+        TimeUnit.SECONDS
+    )
+
+    .readTimeout(
+        120,
+        TimeUnit.SECONDS
+    )
+
+    .writeTimeout(
+        30,
+        TimeUnit.SECONDS
+    )
+
     .build()
 
-// --------------------------------------------------
-// Format FastAPI scheduling response
-// --------------------------------------------------
 
-private fun formatScheduleResult(responseBody: String): String {
+// ==================================================
+// Format FastAPI Scheduling Response
+// ==================================================
+
+private fun formatScheduleResult(
+    responseBody: String
+): String {
 
     return try {
 
-        val json = JSONObject(responseBody)
+        val json =
+            JSONObject(responseBody)
 
-        val status = json.optString("status")
+        val status =
+            json.optString("status")
+
+
+        // --------------------------------------------------
+        // Successful scheduling
+        // --------------------------------------------------
 
         if (status == "success") {
 
-            val meeting = json.optJSONObject("meeting")
+            val meeting =
+                json.optJSONObject("meeting")
 
-            val title = meeting?.optString(
-                "title",
-                "Meeting"
-            ) ?: "Meeting"
+            val title =
+                meeting?.optString(
+                    "title",
+                    "Meeting"
+                ) ?: "Meeting"
 
-            val date = meeting?.optString(
-                "date",
-                ""
-            ) ?: ""
+            val date =
+                meeting?.optString(
+                    "date",
+                    ""
+                ) ?: ""
 
-            val time = meeting?.optString(
-                "time",
-                ""
-            ) ?: ""
+            val time =
+                meeting?.optString(
+                    "time",
+                    ""
+                ) ?: ""
 
-            val duration = meeting?.optInt(
-                "duration",
-                60
-            ) ?: 60
+            val duration =
+                meeting?.optInt(
+                    "duration",
+                    60
+                ) ?: 60
 
             val participants =
-                meeting?.optJSONArray("participants")
+                meeting?.optJSONArray(
+                    "participants"
+                )
 
-            val participantText = if (
-                participants != null &&
-                participants.length() > 0
-            ) {
 
-                buildString {
+            val participantText =
+                if (
+                    participants != null &&
+                    participants.length() > 0
+                ) {
 
-                    for (i in 0 until participants.length()) {
+                    buildString {
 
-                        append(participants.optString(i))
+                        for (
+                        i in 0 until participants.length()
+                        ) {
 
-                        if (i < participants.length() - 1) {
-                            append(", ")
+                            append(
+                                participants.optString(i)
+                            )
+
+                            if (
+                                i < participants.length() - 1
+                            ) {
+
+                                append(", ")
+                            }
                         }
                     }
+
+                } else {
+
+                    "None"
                 }
 
-            } else {
-
-                "None"
-            }
 
             buildString {
 
-                append("Meeting Scheduled Successfully\n\n")
+                append(
+                    "Meeting Scheduled Successfully\n\n"
+                )
 
                 append("Meeting: ")
                 append(title)
@@ -153,23 +219,40 @@ private fun formatScheduleResult(responseBody: String): String {
                 append(participantText)
             }
 
+
+            // --------------------------------------------------
+            // Scheduling conflict
+            // --------------------------------------------------
+
         } else if (status == "conflict") {
 
-            val message = json.optString(
-                "message",
-                "The requested time is already occupied."
-            )
+            val message =
+                json.optString(
+                    "message",
+                    "The requested time is already occupied."
+                )
 
             "Scheduling Conflict\n\n$message"
 
+
+            // --------------------------------------------------
+            // Scheduling error
+            // --------------------------------------------------
+
         } else if (status == "error") {
 
-            val message = json.optString(
-                "message",
-                "Something went wrong while scheduling the meeting."
-            )
+            val message =
+                json.optString(
+                    "message",
+                    "Something went wrong while scheduling the meeting."
+                )
 
             "Scheduling Error\n\n$message"
+
+
+            // --------------------------------------------------
+            // Unknown response
+            // --------------------------------------------------
 
         } else {
 
@@ -188,17 +271,228 @@ private fun formatScheduleResult(responseBody: String): String {
     }
 }
 
-// --------------------------------------------------
+
+// ==================================================
+// Poll Schedule Status
+// ==================================================
+
+private suspend fun pollScheduleStatus(
+    requestId: String
+): String {
+
+    // --------------------------------------------------
+    // Maximum number of status checks
+    // --------------------------------------------------
+
+    val maxAttempts =
+        30
+
+
+    repeat(maxAttempts) { attempt ->
+
+        Log.d(
+            TAG,
+            "Checking schedule status: attempt ${attempt + 1}/$maxAttempts"
+        )
+
+
+        // --------------------------------------------------
+        // Create GET request
+        // --------------------------------------------------
+
+        val request =
+            Request.Builder()
+
+                .url(
+                    "$BASE_URL/schedule/status/$requestId"
+                )
+
+                .get()
+
+                .addHeader(
+                    "Accept",
+                    "application/json"
+                )
+
+                .build()
+
+
+        // --------------------------------------------------
+        // Execute request
+        // --------------------------------------------------
+
+        val response =
+            client
+                .newCall(request)
+                .execute()
+
+
+        val responseBody =
+            response.body?.string()
+                ?: ""
+
+
+        Log.d(
+            TAG,
+            "Status response code: ${response.code}"
+        )
+
+        Log.d(
+            TAG,
+            "Status response: $responseBody"
+        )
+
+
+        // --------------------------------------------------
+        // HTTP error
+        // --------------------------------------------------
+
+        if (!response.isSuccessful) {
+
+            return "Server error ${response.code}: $responseBody"
+        }
+
+
+        // --------------------------------------------------
+        // Parse status response
+        // --------------------------------------------------
+
+        val json =
+            JSONObject(responseBody)
+
+        val status =
+            json.optString("status")
+
+
+        Log.d(
+            TAG,
+            "Current scheduling status: $status"
+        )
+
+
+        // --------------------------------------------------
+        // Handle current status
+        // --------------------------------------------------
+
+        when (status) {
+
+
+            // --------------------------------------------------
+            // Still processing
+            // --------------------------------------------------
+
+            "processing" -> {
+
+                withContext(
+                    Dispatchers.Main
+                ) {
+
+                    // UI is updated from the caller
+                    // when polling starts.
+                }
+
+
+                // Wait 2 seconds before checking again
+
+                delay(2000)
+            }
+
+
+            // --------------------------------------------------
+            // Successfully completed
+            // --------------------------------------------------
+
+            "success" -> {
+
+                // The current status endpoint only returns
+                // request status information.
+                //
+                // Therefore, display a successful completion
+                // message here.
+
+                return "Meeting Scheduled Successfully"
+            }
+
+
+            // --------------------------------------------------
+            // Scheduling conflict
+            // --------------------------------------------------
+
+            "conflict" -> {
+
+                val message =
+                    json.optString(
+                        "error_message",
+                        "The requested time is already occupied."
+                    )
+
+                return "Scheduling Conflict\n\n$message"
+            }
+
+
+            // --------------------------------------------------
+            // Error
+            // --------------------------------------------------
+
+            "error" -> {
+
+                val message =
+                    json.optString(
+                        "error_message",
+                        "Something went wrong while scheduling the meeting."
+                    )
+
+                return "Scheduling Error\n\n$message"
+            }
+
+
+            // --------------------------------------------------
+            // Request not found
+            // --------------------------------------------------
+
+            "not_found" -> {
+
+                return "Scheduling Error\n\nRequest ID was not found."
+            }
+
+
+            // --------------------------------------------------
+            // Unknown status
+            // --------------------------------------------------
+
+            else -> {
+
+                return "Unknown scheduling status: $status"
+            }
+        }
+    }
+
+
+    // --------------------------------------------------
+    // Maximum polling time reached
+    // --------------------------------------------------
+
+    return "Scheduling timed out. Please check your calendar."
+}
+
+
+// ==================================================
 // Main Activity
-// --------------------------------------------------
+// ==================================================
 
 class MainActivity : ComponentActivity() {
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
 
-        super.onCreate(savedInstanceState)
+        super.onCreate(
+            savedInstanceState
+        )
+
 
         enableEdgeToEdge()
+
 
         setContent {
 
@@ -210,84 +504,103 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// --------------------------------------------------
+
+// ==================================================
 // Main UI + Speech-to-Text
-// --------------------------------------------------
+// ==================================================
 
 @Composable
 fun MeetingAIScreen() {
 
-    val context = LocalContext.current
+    val context =
+        LocalContext.current
 
-    // --------------------------------------------------
-    // Meeting request text
-    // --------------------------------------------------
+
+    // ==================================================
+    // Meeting Request Text
+    // ==================================================
 
     var meetingText by remember {
 
         mutableStateOf("")
     }
 
-    // --------------------------------------------------
-    // Scheduling result
-    // --------------------------------------------------
+
+    // ==================================================
+    // Scheduling Result
+    // ==================================================
 
     var resultText by remember {
 
         mutableStateOf("")
     }
 
-    // --------------------------------------------------
-    // Loading state
-    // --------------------------------------------------
+
+    // ==================================================
+    // Loading State
+    // ==================================================
 
     var isLoading by remember {
 
         mutableStateOf(false)
     }
 
-    // --------------------------------------------------
-    // Speech recognition state
-    // --------------------------------------------------
+
+    // ==================================================
+    // Speech Recognition State
+    // ==================================================
 
     var isListening by remember {
 
         mutableStateOf(false)
     }
 
-    // --------------------------------------------------
+
+    // ==================================================
     // Create SpeechRecognizer
-    // --------------------------------------------------
+    // ==================================================
 
-    val speechRecognizer = remember {
+    val speechRecognizer =
+        remember {
 
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            if (
+                SpeechRecognizer
+                    .isRecognitionAvailable(context)
+            ) {
 
-            SpeechRecognizer.createSpeechRecognizer(context)
+                SpeechRecognizer
+                    .createSpeechRecognizer(context)
 
-        } else {
+            } else {
 
-            null
+                null
+            }
         }
-    }
 
-    // --------------------------------------------------
-    // Speech recognition listener
-    // --------------------------------------------------
 
-    DisposableEffect(speechRecognizer) {
+    // ==================================================
+    // Speech Recognition Listener
+    // ==================================================
 
-        if (speechRecognizer != null) {
+    DisposableEffect(
+        speechRecognizer
+    ) {
+
+        if (
+            speechRecognizer != null
+        ) {
 
             speechRecognizer.setRecognitionListener(
 
                 object : RecognitionListener {
 
+
                     override fun onReadyForSpeech(
                         params: Bundle?
                     ) {
 
-                        isListening = true
+                        isListening =
+                            true
 
                         Log.d(
                             TAG,
@@ -295,9 +608,11 @@ fun MeetingAIScreen() {
                         )
                     }
 
+
                     override fun onBeginningOfSpeech() {
 
-                        isListening = true
+                        isListening =
+                            true
 
                         Log.d(
                             TAG,
@@ -305,11 +620,13 @@ fun MeetingAIScreen() {
                         )
                     }
 
+
                     override fun onRmsChanged(
                         rmsdB: Float
                     ) {
                         // Not required
                     }
+
 
                     override fun onBufferReceived(
                         buffer: ByteArray?
@@ -317,9 +634,11 @@ fun MeetingAIScreen() {
                         // Not required
                     }
 
+
                     override fun onEndOfSpeech() {
 
-                        isListening = false
+                        isListening =
+                            false
 
                         Log.d(
                             TAG,
@@ -327,11 +646,13 @@ fun MeetingAIScreen() {
                         )
                     }
 
+
                     override fun onError(
                         error: Int
                     ) {
 
-                        isListening = false
+                        isListening =
+                            false
 
                         Log.e(
                             TAG,
@@ -339,20 +660,27 @@ fun MeetingAIScreen() {
                         )
                     }
 
+
                     override fun onResults(
                         results: Bundle?
                     ) {
 
-                        isListening = false
+                        isListening =
+                            false
+
 
                         val matches =
                             results?.getStringArrayList(
                                 SpeechRecognizer.RESULTS_RECOGNITION
                             )
 
-                        if (!matches.isNullOrEmpty()) {
 
-                            meetingText = matches[0]
+                        if (
+                            !matches.isNullOrEmpty()
+                        ) {
+
+                            meetingText =
+                                matches[0]
 
                             Log.d(
                                 TAG,
@@ -361,11 +689,13 @@ fun MeetingAIScreen() {
                         }
                     }
 
+
                     override fun onPartialResults(
                         partialResults: Bundle?
                     ) {
                         // Not required
                     }
+
 
                     override fun onEvent(
                         eventType: Int,
@@ -377,26 +707,38 @@ fun MeetingAIScreen() {
             )
         }
 
+
+        // --------------------------------------------------
+        // Cleanup SpeechRecognizer
+        // --------------------------------------------------
+
         onDispose {
 
             speechRecognizer?.destroy()
         }
     }
 
-    // --------------------------------------------------
-    // Microphone permission launcher
-    // --------------------------------------------------
+
+    // ==================================================
+    // Microphone Permission Launcher
+    // ==================================================
 
     val microphonePermissionLauncher =
         rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission()
+
+            ActivityResultContracts
+                .RequestPermission()
+
         ) { granted ->
 
             if (granted) {
 
                 startListening(
-                    speechRecognizer = speechRecognizer,
-                    context = context
+                    speechRecognizer =
+                    speechRecognizer,
+
+                    context =
+                    context
                 )
 
             } else {
@@ -406,75 +748,121 @@ fun MeetingAIScreen() {
             }
         }
 
-    // --------------------------------------------------
-    // Scroll state
-    // --------------------------------------------------
+
+    // ==================================================
+    // Scroll State
+    // ==================================================
 
     val scrollState =
         rememberScrollState()
 
-    // --------------------------------------------------
+
+    // ==================================================
     // UI
-    // --------------------------------------------------
+    // ==================================================
 
     Scaffold(
 
-        modifier = Modifier.fillMaxSize()
+        modifier =
+        Modifier.fillMaxSize()
 
     ) { innerPadding ->
 
+
         Column(
 
-            modifier = Modifier
+            modifier =
+            Modifier
+
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(24.dp)
-                .verticalScroll(scrollState),
+
+                .padding(
+                    innerPadding
+                )
+
+                .padding(
+                    24.dp
+                )
+
+                .verticalScroll(
+                    scrollState
+                ),
+
 
             horizontalAlignment =
             Alignment.CenterHorizontally,
+
 
             verticalArrangement =
             Arrangement.Center
 
         ) {
 
-            Text(
-                text = "Meeting AI",
-                fontSize = 32.sp
-            )
 
-            Spacer(
-                modifier = Modifier.height(8.dp)
-            )
+            // ==================================================
+            // Title
+            // ==================================================
 
             Text(
-                text = "Schedule a Meeting",
-                fontSize = 20.sp
+
+                text =
+                "Meeting AI",
+
+                fontSize =
+                32.sp
             )
+
 
             Spacer(
-                modifier = Modifier.height(24.dp)
+                modifier =
+                Modifier.height(8.dp)
             )
 
-            // --------------------------------------------------
-            // Meeting request input
-            // --------------------------------------------------
+
+            Text(
+
+                text =
+                "Schedule a Meeting",
+
+                fontSize =
+                20.sp
+            )
+
+
+            Spacer(
+                modifier =
+                Modifier.height(24.dp)
+            )
+
+
+            // ==================================================
+            // Meeting Request Input
+            // ==================================================
 
             OutlinedTextField(
 
-                value = meetingText,
+                value =
+                meetingText,
+
 
                 onValueChange = {
 
-                    meetingText = it
+                    meetingText =
+                        it
                 },
 
-                modifier = Modifier.fillMaxWidth(),
+
+                modifier =
+                Modifier.fillMaxWidth(),
+
 
                 label = {
-                    Text("Meeting request")
+
+                    Text(
+                        "Meeting request"
+                    )
                 },
+
 
                 placeholder = {
 
@@ -483,77 +871,109 @@ fun MeetingAIScreen() {
                     )
                 },
 
-                minLines = 4,
+
+                minLines =
+                4,
+
 
                 keyboardOptions =
                 KeyboardOptions(
+
                     keyboardType =
                     KeyboardType.Text
                 )
             )
 
+
             Spacer(
-                modifier = Modifier.height(16.dp)
+                modifier =
+                Modifier.height(16.dp)
             )
 
-            // --------------------------------------------------
-            // Microphone + Clear buttons
-            // --------------------------------------------------
+
+            // ==================================================
+            // Microphone + Clear Buttons
+            // ==================================================
 
             Row(
 
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                Modifier.fillMaxWidth(),
+
 
                 horizontalArrangement =
                 Arrangement.Center,
+
 
                 verticalAlignment =
                 Alignment.CenterVertically
 
             ) {
 
-                // Microphone button
+
+                // --------------------------------------------------
+                // Microphone Button
+                // --------------------------------------------------
+
                 IconButton(
 
                     onClick = {
 
                         if (isListening) {
 
-                            speechRecognizer?.stopListening()
+                            speechRecognizer
+                                ?.stopListening()
 
-                            isListening = false
+                            isListening =
+                                false
 
                         } else {
 
+
                             if (
-                                context.checkSelfPermission(
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
+
+                                context
+                                    .checkSelfPermission(
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) ==
+                                PackageManager.PERMISSION_GRANTED
+
                             ) {
 
                                 startListening(
-                                    speechRecognizer = speechRecognizer,
-                                    context = context
+
+                                    speechRecognizer =
+                                    speechRecognizer,
+
+                                    context =
+                                    context
                                 )
 
                             } else {
 
-                                microphonePermissionLauncher.launch(
-                                    Manifest.permission.RECORD_AUDIO
-                                )
+                                microphonePermissionLauncher
+                                    .launch(
+                                        Manifest.permission.RECORD_AUDIO
+                                    )
                             }
                         }
                     },
 
-                    modifier = Modifier.size(64.dp),
 
-                    enabled = !isLoading
+                    modifier =
+                    Modifier.size(64.dp),
+
+
+                    enabled =
+                    !isLoading
 
                 ) {
 
+
                     Text(
 
-                        text = if (isListening) {
+                        text =
+                        if (isListening) {
 
                             "■"
 
@@ -562,33 +982,50 @@ fun MeetingAIScreen() {
                             "🎤"
                         },
 
-                        fontSize = 32.sp
+
+                        fontSize =
+                        32.sp
                     )
                 }
 
-                // Clear button
+
+                // --------------------------------------------------
+                // Clear Button
+                // --------------------------------------------------
+
                 TextButton(
 
                     onClick = {
 
-                        meetingText = ""
-                        resultText = ""
+                        meetingText =
+                            ""
 
+                        resultText =
+                            ""
                     },
 
-                    enabled = !isLoading
+
+                    enabled =
+                    !isLoading
 
                 ) {
 
                     Text(
-                        text = "Clear"
+                        text =
+                        "Clear"
                     )
                 }
             }
 
+
+            // ==================================================
+            // Listening Status
+            // ==================================================
+
             Text(
 
-                text = if (isListening) {
+                text =
+                if (isListening) {
 
                     "Listening..."
 
@@ -598,19 +1035,29 @@ fun MeetingAIScreen() {
                 }
             )
 
+
             Spacer(
-                modifier = Modifier.height(24.dp)
+                modifier =
+                Modifier.height(24.dp)
             )
 
-            // --------------------------------------------------
-            // Schedule Meeting button
-            // --------------------------------------------------
+
+            // ==================================================
+            // Schedule Meeting Button
+            // ==================================================
 
             Button(
 
                 onClick = {
 
-                    if (meetingText.isBlank()) {
+
+                    // --------------------------------------------------
+                    // Validate input
+                    // --------------------------------------------------
+
+                    if (
+                        meetingText.isBlank()
+                    ) {
 
                         resultText =
                             "Please enter a meeting request."
@@ -618,110 +1065,256 @@ fun MeetingAIScreen() {
                         return@Button
                     }
 
-                    isLoading = true
+
+                    // --------------------------------------------------
+                    // Start loading
+                    // --------------------------------------------------
+
+                    isLoading =
+                        true
+
 
                     resultText =
                         "Sending request..."
+
+
+                    // --------------------------------------------------
+                    // Background coroutine
+                    // --------------------------------------------------
 
                     CoroutineScope(
                         Dispatchers.IO
                     ).launch {
 
+
                         try {
+
 
                             Log.d(
                                 TAG,
                                 "Sending request to FastAPI: $BASE_URL/schedule"
                             )
 
+
                             Log.d(
                                 TAG,
                                 "Meeting request: $meetingText"
                             )
 
+
+                            // ==================================================
+                            // Create JSON
+                            // ==================================================
+
                             val json =
                                 JSONObject()
+
 
                             json.put(
                                 "text",
                                 meetingText
                             )
 
+
                             val mediaType =
-                                "application/json".toMediaType()
+                                "application/json"
+                                    .toMediaType()
+
 
                             val requestBody =
-                                json.toString()
+                                json
+                                    .toString()
                                     .toRequestBody(
                                         mediaType
                                     )
 
+
+                            // ==================================================
+                            // POST /schedule
+                            // ==================================================
+
                             val request =
                                 Request.Builder()
+
                                     .url(
                                         "$BASE_URL/schedule"
                                     )
+
                                     .post(
                                         requestBody
                                     )
+
                                     .addHeader(
                                         "Content-Type",
                                         "application/json"
                                     )
+
                                     .build()
+
 
                             val response =
                                 client
                                     .newCall(request)
                                     .execute()
 
+
                             val responseBody =
-                                response.body?.string()
+                                response.body
+                                    ?.string()
                                     ?: ""
+
 
                             Log.d(
                                 TAG,
                                 "FastAPI response code: ${response.code}"
                             )
 
+
                             Log.d(
                                 TAG,
                                 "FastAPI response: $responseBody"
                             )
 
-                            withContext(
-                                Dispatchers.Main
+
+                            // ==================================================
+                            // Handle HTTP error
+                            // ==================================================
+
+                            if (
+                                !response.isSuccessful
                             ) {
 
-                                isLoading = false
+                                withContext(
+                                    Dispatchers.Main
+                                ) {
 
-                                if (response.isSuccessful) {
-
-                                    resultText =
-                                        formatScheduleResult(
-                                            responseBody
-                                        )
-
-                                } else {
+                                    isLoading =
+                                        false
 
                                     resultText =
                                         "Server error ${response.code}: $responseBody"
                                 }
+
+                                return@launch
                             }
 
-                        } catch (e: Exception) {
 
-                            Log.e(
+                            // ==================================================
+                            // Parse /schedule response
+                            // ==================================================
+
+                            val scheduleJson =
+                                JSONObject(
+                                    responseBody
+                                )
+
+
+                            val requestId =
+                                scheduleJson.optString(
+                                    "request_id"
+                                )
+
+
+                            val initialStatus =
+                                scheduleJson.optString(
+                                    "status"
+                                )
+
+
+                            Log.d(
                                 TAG,
-                                "FastAPI request failed",
-                                e
+                                "Request ID: $requestId"
                             )
+
+
+                            Log.d(
+                                TAG,
+                                "Initial status: $initialStatus"
+                            )
+
+
+                            // ==================================================
+                            // Validate request ID
+                            // ==================================================
+
+                            if (
+                                requestId.isBlank()
+                            ) {
+
+                                withContext(
+                                    Dispatchers.Main
+                                ) {
+
+                                    isLoading =
+                                        false
+
+                                    resultText =
+                                        "Scheduling failed: no request ID returned."
+                                }
+
+                                return@launch
+                            }
+
+
+                            // ==================================================
+                            // Show processing message
+                            // ==================================================
 
                             withContext(
                                 Dispatchers.Main
                             ) {
 
-                                isLoading = false
+                                resultText =
+                                    "Request received.\n\nProcessing meeting..."
+                            }
+
+
+                            // ==================================================
+                            // Poll backend
+                            // ==================================================
+
+                            val finalResult =
+                                pollScheduleStatus(
+                                    requestId
+                                )
+
+
+                            // ==================================================
+                            // Show final result
+                            // ==================================================
+
+                            withContext(
+                                Dispatchers.Main
+                            ) {
+
+                                isLoading =
+                                    false
+
+                                resultText =
+                                    finalResult
+                            }
+
+
+                        } catch (e: Exception) {
+
+
+                            // ==================================================
+                            // Handle connection / runtime errors
+                            // ==================================================
+
+                            Log.e(
+                                TAG,
+                                "FastAPI scheduling request failed",
+                                e
+                            )
+
+
+                            withContext(
+                                Dispatchers.Main
+                            ) {
+
+                                isLoading =
+                                    false
 
                                 resultText =
                                     "Connection error: ${e.message}"
@@ -730,16 +1323,21 @@ fun MeetingAIScreen() {
                     }
                 },
 
+
                 modifier =
                 Modifier.fillMaxWidth(),
 
-                enabled = !isLoading
+
+                enabled =
+                !isLoading
 
             ) {
 
+
                 Text(
 
-                    text = if (isLoading) {
+                    text =
+                    if (isLoading) {
 
                         "Scheduling..."
 
@@ -750,39 +1348,60 @@ fun MeetingAIScreen() {
                 )
             }
 
+
             Spacer(
-                modifier = Modifier.height(24.dp)
+                modifier =
+                Modifier.height(24.dp)
             )
 
-            // --------------------------------------------------
+
+            // ==================================================
             // Result
-            // --------------------------------------------------
+            // ==================================================
 
             Text(
-                text = "Result"
+                text =
+                "Result"
             )
+
 
             Spacer(
-                modifier = Modifier.height(8.dp)
+                modifier =
+                Modifier.height(8.dp)
             )
 
+
             Text(
-                text = resultText
+                text =
+                resultText
             )
         }
     }
 }
 
-// --------------------------------------------------
+
+// ==================================================
 // Start Speech Recognition
-// --------------------------------------------------
+// ==================================================
 
 private fun startListening(
-    speechRecognizer: SpeechRecognizer?,
-    context: android.content.Context
+
+    speechRecognizer:
+    SpeechRecognizer?,
+
+    context:
+    android.content.Context
+
 ) {
 
-    if (speechRecognizer == null) {
+
+    // --------------------------------------------------
+    // Check SpeechRecognizer
+    // --------------------------------------------------
+
+    if (
+        speechRecognizer == null
+    ) {
 
         Log.e(
             TAG,
@@ -792,29 +1411,55 @@ private fun startListening(
         return
     }
 
-    val intent = Intent(
-        RecognizerIntent.ACTION_RECOGNIZE_SPEECH
-    ).apply {
 
-        putExtra(
-            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-        )
+    // --------------------------------------------------
+    // Create speech recognition intent
+    // --------------------------------------------------
 
-        putExtra(
-            RecognizerIntent.EXTRA_LANGUAGE,
-            Locale.getDefault()
-        )
+    val intent =
+        Intent(
+            RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+        ).apply {
 
-        putExtra(
-            RecognizerIntent.EXTRA_PARTIAL_RESULTS,
-            false
-        )
-    }
+
+            putExtra(
+
+                RecognizerIntent
+                    .EXTRA_LANGUAGE_MODEL,
+
+                RecognizerIntent
+                    .LANGUAGE_MODEL_FREE_FORM
+            )
+
+
+            putExtra(
+
+                RecognizerIntent
+                    .EXTRA_LANGUAGE,
+
+                Locale.getDefault()
+            )
+
+
+            putExtra(
+
+                RecognizerIntent
+                    .EXTRA_PARTIAL_RESULTS,
+
+                false
+            )
+        }
+
+
+    // --------------------------------------------------
+    // Start listening
+    // --------------------------------------------------
 
     try {
 
-        speechRecognizer.startListening(intent)
+        speechRecognizer.startListening(
+            intent
+        )
 
     } catch (e: Exception) {
 
@@ -826,11 +1471,14 @@ private fun startListening(
     }
 }
 
-// --------------------------------------------------
-// Preview
-// --------------------------------------------------
 
-@Preview(showBackground = true)
+// ==================================================
+// Preview
+// ==================================================
+
+@Preview(
+    showBackground = true
+)
 @Composable
 fun MeetingAIScreenPreview() {
 
@@ -839,3 +1487,4 @@ fun MeetingAIScreenPreview() {
         MeetingAIScreen()
     }
 }
+

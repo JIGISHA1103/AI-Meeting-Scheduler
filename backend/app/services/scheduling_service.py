@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from app.ai.parser import parse_meeting_request
+from app.ai.llm_router import (
+    parse_meeting_request_with_fallback
+)
+
 from app.calendar.calendar_service import (
     check_availability,
     create_calendar_event
@@ -23,7 +26,7 @@ def schedule_meeting(user_input: str, request_id: str):
     """
     Complete meeting scheduling workflow:
 
-    1. Parse the user's request using Gemini.
+    1. Parse the user's request using Groq with Gemini fallback.
     2. Convert date/time into timezone-aware datetime objects.
     3. Check Google Calendar availability.
     4. Create the calendar event if the slot is free.
@@ -31,12 +34,15 @@ def schedule_meeting(user_input: str, request_id: str):
     """
 
     # --------------------------------------------------
-    # Step 1: Parse meeting request using Gemini
+    # Step 1: Parse meeting request using
+    # Groq with Gemini fallback
     # --------------------------------------------------
 
     print(f"[{request_id}] Parsing meeting request")
 
-    meeting = parse_meeting_request(user_input)
+    meeting = parse_meeting_request_with_fallback(
+        user_input
+    )
 
     print(f"[{request_id}] Parsed meeting:")
     print(meeting)
@@ -49,7 +55,10 @@ def schedule_meeting(user_input: str, request_id: str):
     if meeting.get("intent") != "schedule_meeting":
         return {
             "status": "error",
-            "message": "The request is not a meeting scheduling request."
+            "message": (
+                "The request is not a meeting "
+                "scheduling request."
+            )
         }
 
 
@@ -57,16 +66,33 @@ def schedule_meeting(user_input: str, request_id: str):
     # Step 3: Extract meeting details
     # --------------------------------------------------
 
-    title = meeting.get("title", "Meeting")
-    date = meeting.get("date")
-    time = meeting.get("time")
-    duration = meeting.get("duration", 60)
+    title = meeting.get(
+        "title",
+        "Meeting"
+    )
 
-    # Get participants extracted by Gemini
-    participants = meeting.get("participants", [])
+    date = meeting.get("date")
+
+    time = meeting.get("time")
+
+    duration = meeting.get(
+        "duration",
+        60
+    )
+
+    # Get participants extracted by LLM
+
+    participants = meeting.get(
+        "participants",
+        []
+    )
 
     # Make sure participants is always a list
-    if not isinstance(participants, list):
+
+    if not isinstance(
+        participants,
+        list
+    ):
         participants = []
 
 
@@ -77,27 +103,34 @@ def schedule_meeting(user_input: str, request_id: str):
     if not date or not time:
         return {
             "status": "error",
-            "message": "Meeting date or time is missing."
+            "message": (
+                "Meeting date or time is missing."
+            )
         }
 
 
     # --------------------------------------------------
-    # Step 4: Convert date and time into datetime
+    # Step 4: Convert date and time
+    # into timezone-aware datetime
     # --------------------------------------------------
 
     try:
 
         start_time = datetime.fromisoformat(
             f"{date}T{time}"
-        ).replace(tzinfo=IST)
+        ).replace(
+            tzinfo=IST
+        )
 
     except ValueError:
 
         return {
             "status": "error",
             "message": (
-                "Unable to understand the meeting date/time. "
-                f"Received date='{date}', time='{time}'."
+                "Unable to understand the meeting "
+                "date/time. "
+                f"Received date='{date}', "
+                f"time='{time}'."
             )
         }
 
@@ -110,17 +143,29 @@ def schedule_meeting(user_input: str, request_id: str):
         minutes=int(duration)
     )
 
+    print(
+        f"[{request_id}] Meeting time:"
+    )
 
-    print(f"[{request_id}] Meeting time:")
-    print("Start:", start_time)
-    print("End:", end_time)
+    print(
+        "Start:",
+        start_time
+    )
+
+    print(
+        "End:",
+        end_time
+    )
 
 
     # --------------------------------------------------
     # Step 6: Check Google Calendar availability
     # --------------------------------------------------
 
-    print(f"[{request_id}] Checking calendar availability")
+    print(
+        f"[{request_id}] "
+        "Checking calendar availability"
+    )
 
     busy_periods = check_availability(
         start_time,
@@ -134,11 +179,17 @@ def schedule_meeting(user_input: str, request_id: str):
 
     if busy_periods:
 
-        print(f"[{request_id}] Calendar conflict detected")
+        print(
+            f"[{request_id}] "
+            "Calendar conflict detected"
+        )
 
         return {
             "status": "conflict",
-            "message": "The requested time slot is already busy.",
+            "message": (
+                "The requested time slot "
+                "is already busy."
+            ),
             "busy_periods": busy_periods
         }
 
@@ -156,14 +207,19 @@ def schedule_meeting(user_input: str, request_id: str):
 
     else:
 
-        description = "No participants specified."
+        description = (
+            "No participants specified."
+        )
 
 
     # --------------------------------------------------
     # Step 9: Create Google Calendar event
     # --------------------------------------------------
 
-    print(f"[{request_id}] Creating calendar event")
+    print(
+        f"[{request_id}] "
+        "Creating calendar event"
+    )
 
     event = create_calendar_event(
         summary=title,
@@ -178,11 +234,16 @@ def schedule_meeting(user_input: str, request_id: str):
     # Step 10: Return result
     # --------------------------------------------------
 
-    print(f"[{request_id}] Meeting scheduled successfully")
+    print(
+        f"[{request_id}] "
+        "Meeting scheduled successfully"
+    )
 
     return {
         "status": "success",
-        "message": "Meeting scheduled successfully.",
+        "message": (
+            "Meeting scheduled successfully."
+        ),
         "meeting": meeting,
         "event": event
     }
